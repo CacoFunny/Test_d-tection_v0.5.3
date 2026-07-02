@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>VisionHUD</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  :root {
+    --bg: #0A0E14;
+    --bg-panel: #11161F;
+    --accent: #5EEAD4;
+    --accent-dim: #2D7A6E;
+    --warn: #F59E0B;
+    --danger: #F0537A;
+    --text: #E6EDF3;
+    --text-dim: #64748B;
+    --border: #1E2530;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Roboto Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+  }
+
+  #app {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- CAMERA VIEW ---------- */
+  #camera-wrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #video {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  #canvas { display: none; }
+
+  /* Scan line animation */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .scan-line.active {
+    animation: scanmove 1.4s ease-in-out;
+  }
+  @keyframes scanmove {
+    0%   { top: 0%;   opacity: 0; }
+    8%   { opacity: 0.9; }
+    50%  { opacity: 0.6; }
+    92%  { opacity: 0.9; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  /* corner brackets, HUD framing */
+  .bracket {
+    position: absolute;
+    width: 28px; height: 28px;
+    border: 2px solid var(--accent);
+    opacity: 0.55;
+    z-index: 4;
+  }
+  .bracket.tl { top: 14px; left: 14px; border-right: none; border-bottom: none; }
+  .bracket.tr { top: 14px; right: 14px; border-left: none; border-bottom: none; }
+  .bracket.bl { bottom: 14px; left: 14px; border-right: none; border-top: none; }
+  .bracket.br { bottom: 14px; right: 14px; border-left: none; border-top: none; }
+
+  /* ---------- TOP BAR ---------- */
+  #topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + 12px) 16px 10px 16px;
+    background: linear-gradient(180deg, rgba(10,14,20,0.85) 0%, rgba(10,14,20,0) 100%);
+  }
+
+  #status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  #status-dot.live {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  #mode-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  #assistant-btn,
+  #settings-btn {
+    background: rgba(17,22,31,0.7);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+  /* ---------- TAG OVERLAY ---------- */
+  #tags-layer {
+    position: absolute;
+    top: 70px; left: 0; right: 0; bottom: 0;
+    z-index: 8;
+    padding: 0 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .tag {
+    align-self: flex-start;
+    max-width: 88%;
+    background: rgba(17, 22, 31, 0.82);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13.5px;
+    line-height: 1.35;
+    color: var(--text);
+    animation: tagIn 0.3s ease-out;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .tag.cat-securite { border-left-color: var(--danger); }
+  .tag.cat-social { border-left-color: #7DA8F0; }
+  .tag.cat-contextuel { border-left-color: var(--accent); }
+  .tag.cat-technique { border-left-color: #C792EA; }
+  .tag.cat-traduction { border-left-color: #F59E0B; }
+  .tag.cat-archive { border-left-color: var(--text-dim); }
+
+  .tag .tag-icon { margin-right: 6px; }
+  .tag .tag-fade {
+    opacity: 0.55;
+  }
+
+  @keyframes tagIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  #empty-hint {
+    color: var(--text-dim);
+    font-size: 12.5px;
+    padding: 10px 12px;
+    opacity: 0.7;
+  }
+
+  /* ---------- BOTTOM CONTROL BAR ---------- */
+  #controls {
+    position: relative;
+    z-index: 10;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px) 12px;
+  }
+
+  #mode-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #mode-row::-webkit-scrollbar { display: none; }
+
+  .mode-btn {
+    flex: 0 0 auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 20px;
+    padding: 9px 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .mode-btn.active {
+    background: rgba(94, 234, 212, 0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  #main-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  #capture-toggle {
+    flex: 1;
+    background: var(--accent);
+    color: #06201C;
+    border: none;
+    border-radius: 12px;
+    padding: 15px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  #capture-toggle.running {
+    background: var(--danger);
+    color: #2A0A14;
+  }
+
+  #freq-btn {
+    flex: 0 0 auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 15px 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 56px;
+  }
+
+  #mute-btn {
+    flex: 0 0 auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 15px 16px;
+    font-size: 16px;
+  }
+  #mute-btn.muted { color: var(--text-dim); }
+
+  /* ---------- START SCREEN ---------- */
+  #start-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px;
+    gap: 18px;
+  }
+  #start-screen h1 {
+    font-size: 22px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  #start-screen p {
+    font-size: 13px;
+    color: var(--text-dim);
+    max-width: 320px;
+    line-height: 1.5;
+  }
+  #api-key-input {
+    width: 100%;
+    max-width: 320px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 13px 14px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  #api-key-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  #start-btn {
+    width: 100%;
+    max-width: 320px;
+    background: var(--accent);
+    color: #06201C;
+    border: none;
+    padding: 15px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  #start-error {
+    color: var(--danger);
+    font-size: 12px;
+    max-width: 320px;
+  }
+  .key-note {
+    font-size: 11px;
+    color: var(--text-dim);
+    max-width: 320px;
+    line-height: 1.5;
+  }
+
+  /* ---------- SETTINGS PANEL ---------- */
+  #settings-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    background: rgba(10,14,20,0.97);
+    display: none;
+    flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 16px) 20px 20px 20px;
+    overflow-y: auto;
+  }
+  #settings-panel.open { display: flex; }
+  #settings-panel h2 {
+    font-size: 16px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    margin-bottom: 18px;
+  }
+  .setting-group {
+    margin-bottom: 22px;
+  }
+  .setting-group label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .setting-row span { font-size: 13px; }
+  #close-settings {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 14px);
+    right: 18px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    font-size: 16px;
+  }
+  .freq-options { display: flex; gap: 8px; flex-wrap: wrap; }
+  .freq-opt {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .freq-opt.active { border-color: var(--accent); color: var(--accent); }
+  #archive-log {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .translate-select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px;
+    font-family: var(--font-mono);
+    max-width: 48%;
+  }
+  #clear-key-btn {
+    background: rgba(240,83,122,0.1);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 12px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    width: 100%;
+    margin-top: 4px;
+  }
+/* ===========================
+   ASSISTANT
+=========================== */
+
+#assistant-panel{
+
+position:absolute;
+
+inset:0;
+
+display:none;
+
+justify-content:center;
+
+align-items:center;
+
+background:rgba(0,0,0,.65);
+
+z-index:100;
+
+}
+
+#assistant-panel.open{
+
+display:flex;
+
+}
+
+#assistant-window{
+
+width:92%;
+
+max-width:520px;
+
+background:#11161F;
+
+border:1px solid #2D7A6E;
+
+border-radius:16px;
+
+overflow:hidden;
+
+box-shadow:0 0 30px rgba(0,0,0,.5);
+
+}
+
+#assistant-header{
+
+display:flex;
+
+justify-content:space-between;
+
+align-items:center;
+
+padding:14px 18px;
+
+background:#0A0E14;
+
+color:#5EEAD4;
+
+font-weight:bold;
+
+}
+
+#assistant-close{
+
+background:none;
+
+border:none;
+
+color:white;
+
+font-size:22px;
+
+cursor:pointer;
+
+}
+
+#assistant-body{
+
+padding:18px;
+
+}
+
+#assistant-response{
+
+background:#0A0E14;
+
+border:1px solid #1E2530;
+
+border-radius:10px;
+
+padding:14px;
+
+min-height:140px;
+
+white-space:pre-wrap;
+
+margin-bottom:15px;
+
+overflow-y:auto;
+
+}
+
+#assistant-question{
+
+width:100%;
+
+height:90px;
+
+resize:none;
+
+background:#0A0E14;
+
+color:white;
+
+border:1px solid #1E2530;
+
+border-radius:10px;
+
+padding:12px;
+
+font-family:inherit;
+
+font-size:14px;
+
+margin-bottom:15px;
+
+}
+
+#assistant-buttons{
+
+display:flex;
+
+gap:10px;
+
+}
+
+#assistant-buttons button{
+
+flex:1;
+
+padding:12px;
+
+border:none;
+
+border-radius:10px;
+
+font-size:15px;
+
+cursor:pointer;
+
+}
+
+#assistant-mic{
+
+background:#2D7A6E;
+
+color:white;
+
+}
+
+#assistant-send{
+
+background:#5EEAD4;
+
+color:black;
+
+font-weight:bold;
+
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- START / API KEY SCREEN -->
+  <div id="start-screen">
+    <h1>◆ VISIONHUD</h1>
+    <p>Reconnaissance d'environnement en continu. Pointe ta caméra, choisis un mode, et reçois des tags courts à l'oral.</p>
+    <input id="api-key-input" type="password" placeholder="Colle ta clé API Claude (sk-ant-...)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button id="start-btn">Démarrer</button>
+    <div id="start-error"></div>
+    <div class="key-note">Ta clé est stockée uniquement sur cet appareil (jamais envoyée ailleurs qu'à l'API Claude). Tu peux l'effacer dans les réglages.</div>
+  </div>
+
+  <!-- CAMERA + HUD -->
+  <div id="camera-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="bracket tl"></div>
+    <div class="bracket tr"></div>
+    <div class="bracket bl"></div>
+    <div class="bracket br"></div>
+    <div class="scan-line" id="scanLine"></div>
+
+    <div id="topbar">
+
+  <div id="status">
+    <div id="status-dot"></div>
+    <span id="status-text">En pause</span>
+  </div>
+
+  <div id="mode-label">Équilibré</div>
+
+  <div style="display:flex;gap:8px;">
+
+    <button id="assistant-btn">🤖</button>
+
+    <button id="settings-btn">⚙</button>
+
+  </div>
+
+</div>
+
+    <div id="tags-layer">
+      <div id="empty-hint">Appuie sur "Démarrer le scan" pour commencer l'analyse en continu.</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM CONTROLS -->
+  <div id="controls">
+    <div id="mode-row">
+      <button class="mode-btn active" data-mode="equilibre">⚖ Équilibré</button>
+      <button class="mode-btn" data-mode="securite">▲ Sécurité</button>
+      <button class="mode-btn" data-mode="social">◉ Social</button>
+      <button class="mode-btn" data-mode="contextuel">▤ Contextuel</button>
+      <button class="mode-btn" data-mode="traduction">⇄ Traduction</button>
+      <button class="mode-btn" data-mode="archive">◷ Archive</button>
+      <button class="mode-btn" data-mode="technique">◈ Technique</button>
+    </div>
+    <div id="main-row">
+      <button id="freq-btn">4s</button>
+      <button id="capture-toggle">▶ Démarrer le scan</button>
+      <button id="mute-btn">🔊</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS PANEL -->
+  <div id="settings-panel">
+    <button id="close-settings">✕</button>
+    <h2>RÉGLAGES</h2>
+
+    <div class="setting-group">
+      <label>Fréquence de capture</label>
+      <div class="freq-options" id="freq-options">
+        <button class="freq-opt" data-freq="2000">2s</button>
+        <button class="freq-opt active" data-freq="4000">4s</button>
+        <button class="freq-opt" data-freq="6000">6s</button>
+        <button class="freq-opt" data-freq="10000">10s</button>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>Voix / Audio</label>
+      <div class="setting-row">
+        <span>Lecture vocale des tags</span>
+        <input type="checkbox" id="voice-toggle" checked style="width:20px;height:20px;">
+      </div>
+      <div class="setting-row">
+        <span>Vitesse de la voix</span>
+        <select id="voice-rate" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;font-family:var(--font-mono);">
+          <option value="1.3">Rapide</option>
+          <option value="1.0" selected>Normale</option>
+          <option value="0.8">Lente</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="setting-group" id="archive-section" style="display:none;">
+      <label>Journal du mode Archive</label>
+      <div id="archive-log">Aucune entrée encore.</div>
+    </div>
+
+    <div class="setting-group" id="translate-section">
+      <label>Traduction</label>
+      <div class="setting-row">
+        <span>Langue détectée</span>
+        <select id="translate-source-select" class="translate-select"></select>
+      </div>
+      <div class="setting-row">
+        <span>Traduire vers</span>
+        <select id="translate-target-select" class="translate-select"></select>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>Compte</label>
+      <button id="clear-key-btn">Effacer ma clé API de cet appareil</button>
+    </div>
+  </div>
+
+<!-- ================= ASSISTANT ================= -->
+
+<div id="assistant-panel">
+
+  <div id="assistant-window">
+
+    <div id="assistant-header">
+
+      <span>🤖 VisionHUD Assistant</span>
+
+      <button id="assistant-close">✕</button>
+
+    </div>
+
+    <div id="assistant-body">
+
+      <div id="assistant-response">
+
+Bienvenue.
+
+Posez une question sur ce que VisionHUD voit actuellement.
+
+      </div>
+
+      <textarea
+        id="assistant-question"
+        placeholder="Exemple : Où est la sortie ?"
+      ></textarea>
+
+      <div id="assistant-buttons">
+
+        <button id="assistant-mic">
+          🎤 Dicter
+        </button>
+
+        <button id="assistant-send">
+          Envoyer
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+</div>
+
+<script src="assistant.js"></script>
+
+<script src="claude.js"></script>
+
+<script src="voice.js"></script>
+
+<script src="audio.js"></script>
+
+<script src="app.js"></script>
+</body>
+</html>

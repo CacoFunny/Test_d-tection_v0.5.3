@@ -1,0 +1,29 @@
+VisionHUD v0.3
+
+Nouveautés
+
+• Architecture modulaire
+
+• voice.js
+
+• assistant.js
+
+• translation.js
+
+• memory.js
+
+• audio.js
+
+Corrections
+
+• Nettoyage de app.js
+
+• Séparation des responsabilités
+
+À venir
+
+• Bouton Assistant IA
+
+• Questions vocales
+
+• Audio
