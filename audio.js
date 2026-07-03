@@ -263,6 +263,8 @@ class AudioModule {
     }
 
     // ============ SOUS-TITRES EN DIRECT ============
+    // Note : SpeechRecognition gère le micro de façon indépendante
+    // pour éviter le conflit Bluetooth HFP/SCO avec getUserMedia
 
     subtitles(active){
 
@@ -274,7 +276,10 @@ class AudioModule {
 
         if(!SpeechRecognition){
 
-            this._setStatus("subtitles", "Non disponible sur ce navigateur");
+            this._setStatus("subtitles", "Non disponible — utilise Chrome");
+            this.ui.captionFinal.textContent =
+                "Reconnaissance vocale non supportée. Utilise Chrome sur Android.";
+            this.ui.captionBar.style.display = "block";
             return;
 
         }
@@ -284,9 +289,15 @@ class AudioModule {
             this.subtitlesActive = true;
 
             this.recognition = new SpeechRecognition();
-            this.recognition.lang = "fr-CA";
+            // Langue du navigateur = détection auto (fr-CA par défaut)
+            this.recognition.lang = navigator.language || "fr-CA";
             this.recognition.continuous = true;
             this.recognition.interimResults = true;
+            this.recognition.maxAlternatives = 1;
+
+            this.recognition.onstart = () => {
+                this._setStatus("subtitles", "Micro actif — parle normalement");
+            };
 
             this.recognition.onresult = (event) => {
 
@@ -312,6 +323,26 @@ class AudioModule {
             this.recognition.onerror = (event) => {
 
                 console.log("Sous-titres, erreur :", event.error);
+
+                if(event.error === "not-allowed"){
+                    this.subtitlesActive = false;
+                    this._updateToggleUI("subtitles", false);
+                    this._setStatus("subtitles", "Permission refusée");
+                    this.ui.captionFinal.textContent =
+                        "Permission micro refusée. " +
+                        "Appuie sur l icone dans la barre Chrome > " +
+                        "Microphone > Autoriser. " +
+                        "Si probleme Bluetooth : deconnecte tes ecouteurs, " +
+                        "active les sous-titres, puis reconnecte-les.";
+                } else if(event.error === "audio-capture"){
+                    this._setStatus("subtitles", "Conflit audio — reconnecte tes ecouteurs");
+                    this.ui.captionFinal.textContent =
+                        "Conflit Bluetooth detecte. " +
+                        "Deconnecte tes ecouteurs, reactive les sous-titres, " +
+                        "puis reconnecte-les.";
+                } else if(event.error !== "no-speech"){
+                    this._setStatus("subtitles", "Avertissement: " + event.error);
+                }
 
             };
 
