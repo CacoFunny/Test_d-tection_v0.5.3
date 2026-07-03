@@ -722,3 +722,4 @@ function executeVoiceCommand(command) {
 }
 
 init();
+initializeSignsModule();
