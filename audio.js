@@ -188,12 +188,37 @@ class AudioModule {
             const now = Date.now();
             const cooldownOk = (now - this.lastAlertTime) > 4000;
 
-            // --- Détection 1 : son fort et soudain ---
-            if(cooldownOk && rms > Math.max(0.15, ambientLevel * 4)){
+            // --- Détection 1 : bruit soudain (ignore les conversations normales) ---
 
-                this._triggerAlert("Son fort détecté", "danger");
+const dangerLevel = Math.max(
+    0.35,
+    ambientLevel * 8
+);
 
-            }
+// Détermine si le niveau sonore augmente brutalement
+const suddenIncrease =
+    (rms - ambientLevel) > 0.18;
+
+// Une conversation normale augmente généralement
+// progressivement le niveau sonore et ne dépasse
+// pas ce seuil.
+
+if(
+
+    cooldownOk &&
+
+    rms > dangerLevel &&
+
+    suddenIncrease
+
+){
+
+    this._triggerAlert(
+        "Son fort détecté",
+        "danger"
+    );
+
+}
 
             // --- Détection 2 : ton aigu soutenu (type alarme / sirène ~1000-3500 Hz) ---
             const sampleRate = this.audioContext.sampleRate;
